@@ -46,12 +46,11 @@ export default class Queue extends EventEmitter {
     await this.ch.close();
   }
 
-  async fetchJob(trx, id) {
-    let job = await trx(this.tableName)
+  async fetchJob(id) {
+    let job = await this.knex(this.tableName)
       .select('*')
       .first()
-      .where('id', id)
-      .forUpdate();
+      .where('id', id);
 
     if (! job) {
       throw new Error('Job not found');
@@ -60,7 +59,7 @@ export default class Queue extends EventEmitter {
     return job;
   }
 
-  receiveJob(message) {
+  async receiveJob(message) {
     let body;
     try {
       body = JSON.parse(message.content.toString('utf8'));
@@ -76,63 +75,61 @@ export default class Queue extends EventEmitter {
       return;
     }
 
-    this.knex.transaction(async (trx) => {
-      let job;
+    let job;
 
-      try {
-        job = await this.fetchJob(trx, body.id);
-      } catch (err) {
-        this.channel.nack(message, false, false);
+    try {
+      job = await this.fetchJob(body.id);
+    } catch (err) {
+      this.channel.nack(message, false, false);
 
-        this.emit('error', err);
-        return;
-      }
+      this.emit('error', err);
+      return;
+    }
 
-      let d = domain.create();
-      return new Promise((resolve, reject) => {
-        d.on('error', reject);
+    let d = domain.create();
+    return new Promise((resolve, reject) => {
+      d.on('error', reject);
 
-        d.run(this.handler, job, message, (err) => {
-          if (err) {
-            return reject(err);
-          }
+      d.run(this.handler, job, message, (err) => {
+        if (err) {
+          return reject(err);
+        }
 
-          return resolve();
-        });
+        return resolve();
+      });
+    })
+      .then(async (result) => {
+        let savedJob = await this.jobSuccess(job.id);
+        this.emit('jobSuccess', savedJob);
+
+        if (this.heretic.options.writeOutcomes) {
+          await this.publishConfirm(
+            this.heretic.options.outcomesExchange,
+            `${this.heretic.options.outcomeRoutingKeyPrefix}.success`,
+            message.content,
+          );
+        }
+
+        this.channel.ack(message, false);
       })
-        .then(async (result) => {
-          let savedJob = await this.jobSuccess(trx, job.id);
-          this.emit('jobSuccess', savedJob);
+      .catch(async (err) => {
+        let savedJob = await this.jobFailed(job.id, err.stack);
+        this.emit('jobFailed', savedJob, err);
 
-          if (this.heretic.options.writeOutcomes) {
-            await this.publishConfirm(
-              this.heretic.options.outcomesExchange,
-              `${this.heretic.options.outcomeRoutingKeyPrefix}.success`,
-              message.content,
-            );
-          }
+        if (this.heretic.options.writeOutcomes) {
+          await this.publishConfirm(
+            this.heretic.options.outcomesExchange,
+            `${this.heretic.options.outcomeRoutingKeyPrefix}.failed`,
+            message.content,
+          );
+        }
 
-          this.channel.ack(message, false);
-        })
-        .catch(async (err) => {
-          let savedJob = await this.jobFailed(trx, job.id, err.stack);
-          this.emit('jobFailed', savedJob, err);
-
-          if (this.heretic.options.writeOutcomes) {
-            await this.publishConfirm(
-              this.heretic.options.outcomesExchange,
-              `${this.heretic.options.outcomeRoutingKeyPrefix}.failed`,
-              message.content,
-            );
-          }
-
-          this.channel.ack(message, false);
-        });
-    });
+        this.channel.ack(message, false);
+      });
   }
 
-  async jobFailed(trx, jobId, message) {
-    let result = await trx(this.tableName)
+  async jobFailed(jobId, message) {
+    let result = await this.knex(this.tableName)
       .where({ id : jobId})
       .update({
         status : 'failed',
@@ -148,8 +145,8 @@ export default class Queue extends EventEmitter {
     return result[0];
   }
 
-  async jobSuccess(trx, jobId) {
-    let result = await trx(this.tableName)
+  async jobSuccess(jobId) {
+    let result = await this.knex(this.tableName)
       .where({ id : jobId })
       .update({
         status : 'success',
