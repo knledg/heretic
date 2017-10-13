@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import domain from 'domain';
 import Promise from 'bluebird';
+import os from 'os';
 
 export default class Queue extends EventEmitter {
   constructor(heretic, name, concurrency, handler) {
@@ -137,6 +138,7 @@ export default class Queue extends EventEmitter {
           time : new Date(),
           status : 'failed',
           message : message,
+          hostname : os.hostname(),
         })),
         last_attempted_at : new Date(),
       })
@@ -154,6 +156,7 @@ export default class Queue extends EventEmitter {
           time : new Date(),
           status : 'success',
           message : 'success',
+          hostname : os.hostname(),
         })),
         last_attempted_at : new Date(),
       })
