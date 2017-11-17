@@ -170,6 +170,17 @@ export default class Heretic extends EventEmitter {
     }
   }
 
+  async assertQueue(queue) {
+    await this.init();
+    return this.controlChannel.assertQueue(queue, {
+      durable : true,
+      arguments : {
+        'x-dead-letter-exchange' : this.options.deadJobsExchange,
+        'x-dead-letter-routing-key' : this.options.deadJobsQueue,
+      },
+    });
+  }
+
   async assertEnvironment() {
     const ch = await this.connection.createChannel();
 
