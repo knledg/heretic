@@ -124,8 +124,10 @@ export default class Queue extends EventEmitter {
             message.content,
           );
         }
-
         this.channel.ack(message, false);
+      })
+      .finally(() => {
+        Promise.delay(1).then(() => this.emit('jobComplete'));
       });
   }
 
