@@ -1,6 +1,8 @@
 {
-  "extends": "helioslabs",
-  "rules": {
-    "max-depth": [ 2, 4 ],
+  "parser": "babel-eslint",
+  "parserOptions": {
+    "sourceType": "module",
+    "allowImportExportEverywhere": false,
+    "codeFrame": true
   }
 }
